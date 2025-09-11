@@ -1,0 +1,22 @@
+{
+  "name": "com.exerussus.gameshare",
+  "version": "1.0.0",
+  "displayName": "Game Share",
+  "description": "Сервис-локатор с функцией инжекта.",
+  "unity": "2020.3",
+  "keywords": [
+    "gameshare",
+    "service-locator",
+    "inject",
+    "di",
+    "exerussus"
+  ],
+  "author": {
+    "name": "Exerussus",
+    "email": "solovyov.production@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/exerussus/GameShare.git"
+  }
+}
