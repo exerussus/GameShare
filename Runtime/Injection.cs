@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 
 namespace Exerussus.GameSharing.Runtime
@@ -9,7 +10,9 @@ namespace Exerussus.GameSharing.Runtime
         public Type MainType { get; }
         public Type SubType { get; }
 
-        public InjectSharedObjectAttribute() { }
+        public InjectSharedObjectAttribute()
+        {
+        }
 
         public InjectSharedObjectAttribute(Type mainType)
         {
@@ -32,28 +35,65 @@ namespace Exerussus.GameSharing.Runtime
 
         public static void InjectSharedObjects(object target, GameShare gameShare)
         {
-            var targetType = target.GetType();
-    
-            while (targetType != null && targetType != typeof(object))
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+            if (gameShare == null)
+                throw new ArgumentNullException(nameof(gameShare));
+
+            var visited = new HashSet<Type>();
+            InjectTypeHierarchy(target, gameShare, target.GetType(), visited);
+        }
+
+        private static void InjectTypeHierarchy(object target, GameShare gameShare, Type type, HashSet<Type> visited)
+        {
+            if (type == null || type == typeof(object) || !visited.Add(type))
+                return;
+
+            // 1. Инжектим в поля и свойства типа
+            InjectMembers(target, gameShare, type);
+
+            // 2. Рекурсивно обрабатываем базовый тип
+            InjectTypeHierarchy(target, gameShare, type.BaseType, visited);
+
+            // 3. И все интерфейсы, которые он реализует
+            foreach (var iface in type.GetInterfaces()) InjectTypeHierarchy(target, gameShare, iface, visited);
+        }
+
+        private static void InjectMembers(object target, GameShare gameShare, Type type)
+        {
+            const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+            var fields = type.GetFields(flags);
+            var properties = type.GetProperties(flags);
+
+            foreach (var field in fields)
             {
-                var fields = targetType.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-                var properties = targetType.GetProperties(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                ProcessInjection(field, target, gameShare,
+                    f => f.FieldType,
+                    sharedObject => field.SetValue(target, sharedObject));
+            }
 
-                foreach (var field in fields)
-                {
-                    ProcessInjection(field, target, gameShare, 
-                        f => f.FieldType, 
-                        sharedObject => field.SetValue(target, sharedObject));
-                }
-
-                foreach (var property in properties)
-                {
-                    ProcessInjection(property, target, gameShare, 
-                        p => p.PropertyType, 
-                        sharedObject => property.SetValue(target, sharedObject));
-                }
-
-                targetType = targetType.BaseType;
+            foreach (var property in properties)
+            {
+                ProcessInjection(property, target, gameShare,
+                    p => p.PropertyType,
+                    sharedObject =>
+                    {
+                        if (property.SetMethod != null)
+                        {
+                            property.SetValue(target, sharedObject);
+                        }
+                        else
+                        {
+                            // Пытаемся достучаться до авто-бэкинг-филда
+                            var backingFieldName = $"<{property.Name}>k__BackingField";
+                            var backingField = type.GetField(backingFieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (backingField != null)
+                            {
+                                backingField.SetValue(target, sharedObject);
+                            }
+                        }
+                    });
             }
         }
 
@@ -77,10 +117,10 @@ namespace Exerussus.GameSharing.Runtime
             catch (Exception e)
             {
                 var memberType = getType(member);
-                throw new Exception($"Ошибка при инъекции в классе : {target.GetType().Name} | Поле: {member.Name} | Зависимость : {memberType}.\n\n{e.Message}\n{e.StackTrace}");
+                throw new Exception(
+                    $"Ошибка при инъекции в классе : {target.GetType().Name} | Поле: {member.Name} | Зависимость : {memberType}.\n\n{e.Message}\n{e.StackTrace}");
             }
 #else
-
             var attribute = Attribute.GetCustomAttribute(member, typeof(InjectSharedObjectAttribute)) as InjectSharedObjectAttribute;
             if (attribute == null) return;
 
